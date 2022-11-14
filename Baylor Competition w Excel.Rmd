@@ -1,0 +1,853 @@
+---
+title: "Baylor Competition w Excel"
+output: html_document
+date: "2022-11-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(rpart)
+library(rpart.plot)
+library(jsonlite)
+#library(rjson)
+library(purrr)
+#library(ndjson)
+library(stringi)
+library(splitstackshape)
+library(car)
+library(randomForest)
+library(caret)
+library(MASS)
+library(varImp)
+library(ROSE)
+library(pROC)
+```
+
+```{r}
+actual_data_full <- read_csv("2018-19 Big 12 Conf Games V2.csv")
+actual_data_full %>% select(defense.teamId:description,before_result:play_result) -> actual_data
+
+actual_data$gameResult.date <- ymd(actual_data$gameResult.date)
+
+actual_data$clock <- (actual_data$clock / 600)
+```
+
+creating play result list
+```{r}
+results <- c("Make 2 Pts","Miss 3 Pts","Miss 2 Pts","Foul","No Violation","Free Throw","Make 3 Pts","Turnover",
+             "Run Offense","Non Shooting Foul","Shot Clock Violation","Lineup Clip", "Out of Bound Timeout",
+             "Kicked Ball","8 Sec Violation","Out of Bound 5 Sec Violation","Make 2 Pts Foul")
+#actual_data %>% mutate(play_result = (ifelse(grepl("Make 2 Pts", actual_data$description), "Make 2 Pts",
+#                                          ifelse(grepl("Make 2 Pts Foul > 1 pts|Make 2 Pts Foul > 0 Pts",actual_data$description),"Make 2 Pts Foul",
+#                                          ifelse(grepl("Make 3 Pts",actual_data$description),"Make 3 Pts",
+#                                          ifelse(grepl("Miss 3 Pts", actual_data$description), "Miss 3 Pts",
+#                                          ifelse(grepl("Miss 2 Pts", actual_data$description), "Miss 2 Pts",
+#                                          ifelse(grepl("Foul", actual_data$description), "Foul",
+ #                                         ifelse(grepl("No Violation", actual_data$description), "No Violation",
+#                                          ifelse(grepl("Free Throw", actual_data$description), "Free Throw",
+  #                                        ifelse(grepl("Turnover", actual_data$description), "Turnover",
+   #                                       ifelse(grepl("Run Offense", actual_data$description), "Run Offense",
+    #                                      ifelse(grepl("Non Shooting Foul", actual_data$description), "Non Shooting Foul",
+     #                                     ifelse(grepl("Shot Clock Violation", actual_data$description), "Shot Clock Violation",
+      #                                    ifelse(grepl("Lineup Clip", actual_data$description), "Lineup Clip",
+       #                                   ifelse(grepl("Out of Bound Timeout", actual_data$description), "Out of Bound Timeout",
+        #                                  ifelse(grepl("Kicked Ball", actual_data$description), "Kicked Ball",
+         #                                 ifelse(grepl("8 Sec Violation", actual_data$description), "8 Sec Violation",
+          #                                ifelse(grepl("Out of Bound 5 Sec Violation", actual_data$description), 
+           #                                      "Out of Bound 5 Sec Violation", "no result"))))))))))))))))))) -> actual_data
+                                                
+
+```
+
+
+indicators for other play components
+```{r}
+actual_data %>% mutate(At_Basket = ifelse(grepl("At Basket",actual_data$description),1,0),
+                       Ball_Delivered = ifelse(grepl("Ball Delivered",actual_data$description),1,0),
+                       Ballhandler = ifelse(grepl("Ballhandler",actual_data$description),1,0),
+                       Baseline = ifelse(grepl("Baseline",actual_data$description),1,0),
+                       Basket = ifelse(grepl("> Basket >",actual_data$description),1,0),
+                       Curl = ifelse(grepl("Curl",actual_data$description),1,0),
+                       Cut = ifelse(grepl("Cut",actual_data$description),1,0),
+                       Defense_Commits = ifelse(grepl("Defense Commits",actual_data$description),1,0),
+                       Dribble_Jumper = ifelse(grepl("> Dribble Jumper >",actual_data$description),1,0),
+                       Dribble_Move = ifelse(grepl("> Dribble Move >",actual_data$description),1,0),
+                       Dribble_Off_Pick = ifelse(grepl("Dribble Off Pick",actual_data$description),1,0),
+                       Drive_Baseline = ifelse(grepl("Drive Baseline",actual_data$description),1,0),
+                       Drive_Middle = ifelse(grepl("Drive Middle",actual_data$description),1,0),
+                       Drives_Left = ifelse(grepl("Drives Left",actual_data$description),1,0),
+                       Drives_Right = ifelse(grepl("Drives Right",actual_data$description),1,0),
+                       Drives_Straight = ifelse(grepl("Drives Straight",actual_data$description),1,0),
+                       Early_Jumper = ifelse(grepl("Early Jumper",actual_data$description),1,0),
+                       Face_up = ifelse(grepl("Face-up",actual_data$description),1,0),
+                       Fade = ifelse(grepl("Fade",actual_data$description),1,0),
+                       First_Middle = ifelse(grepl("First Middle",actual_data$description),1,0),
+                       Flare = ifelse(grepl("Flare",actual_data$description),1,0),
+                       Flash = ifelse(grepl("Flash",actual_data$description),1,0),
+                       Flash_Middle = ifelse(grepl("> Flash Middle >",actual_data$description),1,0),
+                       From_Dribble = ifelse(grepl("From Dribble",actual_data$description),1,0),
+                       From_Stationary = ifelse(grepl("From Stationary",actual_data$description),1,0),
+                       Go_Away_From_Pick = ifelse(grepl("Go Away from Pick",actual_data$description),1,0),
+                       Guarded = ifelse(grepl("Guarded",actual_data$description),1,0),
+                       Hand_Off = ifelse(grepl("Hand Off",actual_data$description),1,0),
+                       High_PnR = ifelse(grepl("High P&R",actual_data$description),1,0),
+                       ISO = ifelse(grepl("ISO",actual_data$description),1,0),
+                       Jumper = ifelse(grepl("> Jumper >",actual_data$description),1,0),
+                       Leak_Outs = ifelse(grepl("Leak Outs",actual_data$description),1,0),
+                       Left = ifelse(grepl("> Left >",actual_data$description),1,0),
+                       Left_Block = ifelse(grepl("Left Block",actual_data$description),1,0),
+                       Left_PnR = ifelse(grepl("Left P&R",actual_data$description),1,0),
+                       Left_Shoulder = ifelse(grepl("Left Shoulder",actual_data$description),1,0),
+                       Left_Wing = ifelse(grepl("Left Wing",actual_data$description),1,0),
+                       Long = ifelse(grepl("> Long >",actual_data$description),1,0),
+                       Long_3pt = ifelse(grepl("Long/3pt",actual_data$description),1,0),
+                       Medium_17ft_to_3pt_line = ifelse(grepl("Medium/17' to <3p|Medium/17 to <3pt",actual_data$description),1,0),
+                       No_Dribble_Jumper = ifelse(grepl("No Dribble Jumper",actual_data$description),1,0),
+                       No_Dribble_Move = ifelse(grepl("No Dribble Move",actual_data$description),1,0),
+                       No_Play_Type = ifelse(grepl("No Play Type",actual_data$description),1,0),
+                       Non_Possession = ifelse(grepl("Non Possession",actual_data$description),1,0),
+                       Off_Screen = ifelse(grepl("Off Screen",actual_data$description),1,0),
+                       Offensive_Rebound = ifelse(grepl("Offensive Rebound",actual_data$description),1,0),
+                       Open = ifelse(grepl("Open",actual_data$description),1,0),
+                       PnR_Ball_Handler = ifelse(grepl("P&R Ball Handler",actual_data$description),1,0),
+                       Post_Up = ifelse(grepl("Post-Up",actual_data$description),1,0),
+                       Post_Pin = ifelse(grepl("Post Pin",actual_data$description),1,0),
+                       Right = ifelse(grepl("> Right >",actual_data$description),1,0),
+                       Right_Block = ifelse(grepl("Right Block",actual_data$description),1,0),
+                       Right_PnR = ifelse(grepl("Right P&R",actual_data$description),1,0),
+                       Right_Shoulder = ifelse(grepl("Right Shoulder",actual_data$description),1,0),
+                       Right_Wing = ifelse(grepl("Right Wing",actual_data$description),1,0),
+                       Scoring_Attempt = ifelse(grepl("Scoring Attempt",actual_data$description),1,0),
+                       Screen = ifelse(grepl("> Screen >",actual_data$description),1,0),
+                       Short = ifelse(grepl("> Short >",actual_data$description),1,0),
+                       Short_to_lessthan_17ft = ifelse(grepl("Short to < 17'",actual_data$description),1,0),
+                       Side = ifelse(grepl("Side",actual_data$description),1,0),
+                       Split = ifelse(grepl("Split",actual_data$description),1,0),
+                       Spot_Up = ifelse(grepl("Spot-Up",actual_data$description),1,0),
+                       Straight = ifelse(grepl("Straight",actual_data$description),1,0),
+                       Takes_Early_Jump_Shot = ifelse(grepl("Takes Early Jump Shot",actual_data$description),1,0),
+                       To_Basket = ifelse(grepl("To Basket",actual_data$description),1,0),
+                       To_Drop_Step = ifelse(grepl("To Drop Step",actual_data$description),1,0),
+                       To_Hook = ifelse(grepl("To Hook",actual_data$description),1,0),
+                       To_Jumper = ifelse(grepl("To Jumper",actual_data$description),1,0),
+                       To_Shooters_Left = ifelse(grepl("To Shooter's Left",actual_data$description),1,0),
+                       To_Shooters_Right = ifelse(grepl("To Shooter's Right",actual_data$description),1,0),
+                       To_Up_and_Under = ifelse(grepl("To Up and Under",actual_data$description),1,0),
+                       Top = ifelse(grepl("Top",actual_data$description),1,0),
+                       Trailer = ifelse(grepl("Trailer",actual_data$description),1,0),
+                       Transition = ifelse(grepl("Transition",actual_data$description),1,0)) -> actual_data
+```
+
+converting variables to factors
+```{r}
+actual_data$isHome <- as.factor(actual_data$isHome)
+actual_data$hardDouble <- as.factor(actual_data$hardDouble)
+actual_data$pickAndRoll <- as.factor(actual_data$pickAndRoll)
+actual_data$sob <- as.factor(actual_data$sob)
+actual_data$eob <- as.factor(actual_data$eob)
+actual_data$ato <- as.factor(actual_data$ato)
+actual_data$zone <- as.factor(actual_data$zone)
+actual_data$shortClock <- as.factor(actual_data$shortClock)
+actual_data$press <- as.factor(actual_data$press)
+actual_data$At_Basket <- as.factor(actual_data$At_Basket)
+actual_data$Ball_Delivered <- as.factor(actual_data$Ball_Delivered)
+actual_data$Ballhandler <- as.factor(actual_data$Ballhandler)
+actual_data$Baseline <- as.factor(actual_data$Baseline)
+actual_data$Basket <- as.factor(actual_data$Basket)
+actual_data$Curl <- as.factor(actual_data$Curl)
+actual_data$Cut <- as.factor(actual_data$Cut)
+actual_data$Defense_Commits <- as.factor(actual_data$Defense_Commits)
+actual_data$Dribble_Jumper <- as.factor(actual_data$Dribble_Jumper)
+actual_data$Dribble_Move <- as.factor(actual_data$Dribble_Move)
+actual_data$Dribble_Off_Pick <- as.factor(actual_data$Dribble_Off_Pick)
+actual_data$Drive_Baseline <- as.factor(actual_data$Drive_Baseline)
+actual_data$Drive_Middle <- as.factor(actual_data$Drive_Middle)
+actual_data$Drives_Left <- as.factor(actual_data$Drives_Left)
+actual_data$Drives_Right <- as.factor(actual_data$Drives_Right)
+actual_data$Drives_Straight <- as.factor(actual_data$Drives_Straight)
+actual_data$Early_Jumper <- as.factor(actual_data$Early_Jumper)
+actual_data$Face_up <- as.factor(actual_data$Face_up)
+actual_data$Fade <- as.factor(actual_data$Fade)
+actual_data$First_Middle <- as.factor(actual_data$First_Middle)
+actual_data$Flare <- as.factor(actual_data$Flare)
+actual_data$Flash <- as.factor(actual_data$Flash)
+actual_data$Flash_Middle <- as.factor(actual_data$Flash_Middle)
+actual_data$From_Dribble <- as.factor(actual_data$From_Dribble)
+actual_data$From_Stationary <- as.factor(actual_data$From_Stationary)
+actual_data$Go_Away_From_Pick <- as.factor(actual_data$Go_Away_From_Pick)
+actual_data$Guarded <- as.factor(actual_data$Guarded)
+actual_data$Hand_Off <- as.factor(actual_data$Hand_Off)
+actual_data$High_PnR <- as.factor(actual_data$High_PnR)
+actual_data$ISO <- as.factor(actual_data$ISO)
+actual_data$Jumper <- as.factor(actual_data$Jumper)
+actual_data$Leak_Outs <- as.factor(actual_data$Leak_Outs)
+actual_data$Left <- as.factor(actual_data$Left)
+actual_data$Left_Block <- as.factor(actual_data$Left_Block)
+actual_data$Left_PnR <- as.factor(actual_data$Left_PnR)
+actual_data$Left_Shoulder <- as.factor(actual_data$Left_Shoulder)
+actual_data$Left_Wing <- as.factor(actual_data$Left_Wing)
+actual_data$Long <- as.factor(actual_data$Long)
+actual_data$Long_3pt <- as.factor(actual_data$Long_3pt)
+actual_data$Medium_17ft_to_3pt_line <- as.factor(actual_data$Medium_17ft_to_3pt_line)
+actual_data$No_Dribble_Jumper <- as.factor(actual_data$No_Dribble_Jumper)
+actual_data$No_Dribble_Move <- as.factor(actual_data$No_Dribble_Move)
+actual_data$No_Play_Type <- as.factor(actual_data$No_Play_Type)
+actual_data$Non_Possession <- as.factor(actual_data$Non_Possession)
+actual_data$Off_Screen <- as.factor(actual_data$Off_Screen)
+actual_data$Offensive_Rebound <- as.factor(actual_data$Offensive_Rebound)
+actual_data$Open <- as.factor(actual_data$Open)
+actual_data$PnR_Ball_Handler <- as.factor(actual_data$PnR_Ball_Handler)
+actual_data$Post_Up <- as.factor(actual_data$Post_Up)
+actual_data$Post_Pin <- as.factor(actual_data$Post_Pin)
+actual_data$Right <- as.factor(actual_data$Right)
+actual_data$Right_Block <- as.factor(actual_data$Right_Block)
+actual_data$Right_PnR <- as.factor(actual_data$Right_PnR)
+actual_data$Right_Shoulder <- as.factor(actual_data$Right_Shoulder)
+actual_data$Right_Wing <- as.factor(actual_data$Right_Wing)
+actual_data$Scoring_Attempt <- as.factor(actual_data$Scoring_Attempt)
+actual_data$Screen <- as.factor(actual_data$Screen)
+actual_data$Short <- as.factor(actual_data$Short)
+actual_data$Short_to_lessthan_17ft <- as.factor(actual_data$Short_to_lessthan_17ft)
+actual_data$Side <- as.factor(actual_data$Side)
+actual_data$Split <- as.factor(actual_data$Split)
+actual_data$Spot_Up <- as.factor(actual_data$Spot_Up)
+actual_data$Straight <- as.factor(actual_data$Straight)
+actual_data$Takes_Early_Jump_Shot <- as.factor(actual_data$Takes_Early_Jump_Shot)
+actual_data$To_Basket <- as.factor(actual_data$To_Basket)
+actual_data$To_Drop_Step <- as.factor(actual_data$To_Drop_Step)
+actual_data$To_Hook <- as.factor(actual_data$To_Hook)
+actual_data$To_Jumper <- as.factor(actual_data$To_Jumper)
+actual_data$To_Shooters_Left <- as.factor(actual_data$To_Shooters_Left)
+actual_data$To_Shooters_Right <- as.factor(actual_data$To_Shooters_Right)
+actual_data$To_Up_and_Under <- as.factor(actual_data$To_Up_and_Under)
+actual_data$Top <- as.factor(actual_data$Top)
+actual_data$Trailer <- as.factor(actual_data$Trailer)
+actual_data$Transition <- as.factor(actual_data$Transition)
+```
+
+# Analysis
+
+creating different dependent variables
+
+```{r}
+positive_result <- c("Make 2 Pts Foul","Make 3 Pts Foul","Free Throw","Make 2 Pts","Make 3 Pts")
+
+made_basket <- c("Make 2 Pts Foul","Make 3 Pts Foul","Make 2 Pts","Make 3 Pts")
+```
+
+
+```{r}
+actual_data %>% filter(Non_Possession==0,play_result!="Non Shooting Foul")  %>% mutate(positive_outcome = ifelse(play_result %in% positive_result,1,0)) -> play_result_data
+
+actual_data %>% filter(Non_Possession==0,play_result!="8 Sec Violation",play_result!="Foul",play_result!="Free Throw",
+                       play_result!="Kicked Ball",play_result!="Lineup Clip", play_result!="No Violation",
+                       play_result!="Non Shooting Foul",play_result != "Out of Bound 5 Sec Violation",
+                       play_result != "Out of Bound Timeout",play_result != "Run Offense",
+                       play_result != "Shot Clock Violation", play_result != "Turnover") %>% 
+  mutate(made_basket = ifelse(play_result %in% made_basket,1,0)) -> made_basket_data
+```
+
+```{r}
+play_result_data$positive_outcome <- as.factor(play_result_data$positive_outcome)
+made_basket_data$made_basket <- as.factor(made_basket_data$made_basket)
+```
+
+# Models for making/missing a shot
+
+logit
+
+all variables
+many perfectly collinear variables
+```{r}
+made_basket_data %>% select(hardDouble,sob:press,At_Basket:No_Play_Type,Off_Screen:made_basket) -> made_basket_reg
+
+
+model1 <- glm(made_basket ~ ., data= made_basket_reg, family = "binomial")
+summary(model1)
+
+ll.null <- model1$null.deviance/-2
+ll.proposed <- model1$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+excluding perfectly collinear variables
+```{r}
+made_basket_data %>% select(hardDouble,sob:press,At_Basket:Cut,Dribble_Jumper:Guarded,High_PnR:No_Play_Type,
+                            Off_Screen:Offensive_Rebound,PnR_Ball_Handler:Right,Right_Shoulder:Right_Wing,Short_to_lessthan_17ft,
+                            Split:Spot_Up,To_Basket:To_Shooters_Left,To_Up_and_Under,Trailer,made_basket) -> made_basket_reg2
+
+
+model2 <- glm(made_basket ~ ., data= made_basket_reg2, family = "binomial")
+summary(model2)
+
+ll.null <- model2$null.deviance/-2
+ll.proposed <- model2$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+attempting to only use variables that occur right before the shot
+```{r}
+made_basket_data %>% select(hardDouble:press,At_Basket,Basket,Drive_Baseline,Drive_Middle,Drives_Right,Flash,
+                            Jumper,Long_3pt,Medium_17ft_to_3pt_line,Screen,Short_to_lessthan_17ft,To_Basket,To_Drop_Step,
+                            To_Hook,To_Jumper,To_Up_and_Under) -> made_basket_reg3
+model3 <- glm(made_basket ~ ., data= made_basket_reg3, family = "binomial")
+summary(model3)
+
+ll.null <- model3$null.deviance/-2
+ll.proposed <- model3$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+excluding variables with less than 100 '1s'
+```{r}
+made_basket_reg %>% select(hardDouble:press,At_Basket:Basket,Cut:Dribble_Off_Pick,Drives_Left:Face_up,First_Middle,
+                           Flash,From_Dribble:ISO,Left:Left_Wing,Long_3pt:No_Dribble_Jumper,No_Play_Type,Right:Scoring_Attempt,
+                           Short:Side,Spot_Up:Straight,To_Basket:To_Hook,To_Shooters_Left:To_Shooters_Right,
+                           Top:made_basket) -> made_basket_reg4
+
+model4 <- glm(made_basket ~ ., data= made_basket_reg4, family = "binomial")
+summary(model4)
+
+ll.null <- model4$null.deviance/-2
+ll.proposed <- model4$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+
+excluding variables that occur right before the make or miss
+```{r}
+#before_shot <- c("To Basket","Long/3pt","To Jumper","To Hook","Rolls to Basket","Flash","Medium/17' to <3p","Basket","Make 2 Pts Foul",
+ #                "At Basket","Short to < 17'","To Up and Under","Jumper","Drives Right","To Drop Step","Screen","Make 3 Pts Foul",
+  #               "Drive Baseline","Drive Middle","Medium/17' to <3pt")
+
+
+made_basket_data %>% select(hardDouble:press,Ball_Delivered,Ballhandler,Baseline,Curl,Cut,Defense_Commits,Dribble_Move,
+                            Dribble_Off_Pick,Drive_Baseline:Drives_Straight,Face_up,First_Middle,Flare,
+                            Flash_Middle,From_Dribble:Hand_Off,High_PnR,ISO,Leak_Outs,Left:Long,No_Dribble_Move:No_Play_Type,
+                            Off_Screen:Right_Wing,Screen,Side:Straight, To_Shooters_Left:To_Shooters_Right,
+                            Top:made_basket) -> made_basket_reg5
+
+
+model5 <- glm(made_basket ~ ., data= made_basket_reg5, family = "binomial")
+summary(model5)
+
+ll.null <- model5$null.deviance/-2
+ll.proposed <- model5$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+excluding variables before the make or miss and perfectly collinear variables
+```{r}
+made_basket_reg5 %>% select(hardDouble:press,Ball_Delivered,Ballhandler,Baseline,Curl,Cut,Dribble_Move,
+                            Dribble_Off_Pick,Drive_Baseline:Drives_Straight,Face_up,First_Middle,Flare,
+                            Flash_Middle,From_Dribble:Guarded,High_PnR,ISO,Leak_Outs,Left:Long,No_Dribble_Move:No_Play_Type,
+                            Off_Screen:Right,Right_Shoulder:Screen,
+                            Split:To_Shooters_Left,Trailer,made_basket) -> made_basket_reg6
+
+model6 <- glm(made_basket ~ ., data= made_basket_reg6, family = "binomial")
+summary(model6)
+
+ll.null <- model6$null.deviance/-2
+ll.proposed <- model6$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+Trying easily interpretable Play types
+```{r}
+made_basket_data %>% select(zone,Cut,Flare,Flash,High_PnR,Left_PnR,Right_PnR,Off_Screen,ISO,No_Play_Type,
+                            Post_Up,made_basket,Spot_Up,From_Dribble,Drive_Baseline,Drive_Middle,Drives_Left,Drives_Right,
+                            Drives_Straight) -> made_basket_reg7                   
+
+model7 <- glm(made_basket ~ zone*Cut+zone*Flare+zone*Flash+zone*High_PnR+zone*Left_PnR+
+                zone*Right_PnR+zone*Off_Screen+zone*ISO+zone*No_Play_Type+zone*Post_Up+
+                zone*Spot_Up+zone*Spot_Up+zone*From_Dribble+ zone*Drive_Baseline+ zone*Drive_Middle+
+                zone*Drives_Left+zone*Drives_Right + zone*Drives_Straight, data= made_basket_reg7, family = binomial(link = "logit"))
+summary(model7)
+
+ll.null <- model7$null.deviance/-2
+ll.proposed <- model7$deviance/-2
+(ll.null - ll.proposed)/ll.null
+
+```
+
+
+```{r}
+made_basket_data %>% select(zone,Cut,Flare,Flash,High_PnR,Left_PnR,Right_PnR,Off_Screen,ISO,No_Play_Type,
+                            Post_Up,made_basket,Spot_Up,From_Dribble,Drive_Baseline,Drive_Middle,Drives_Left,Drives_Right,
+                            Drives_Straight) -> made_basket_reg7                   
+
+model7 <- glm(made_basket ~ zone*Cut+zone*Flare+zone*Flash+zone*High_PnR+zone*Left_PnR+
+                zone*Right_PnR+zone*Off_Screen+zone*ISO+zone*No_Play_Type+zone*Post_Up+
+                zone*Spot_Up+zone*Spot_Up+zone*From_Dribble+ zone*Drive_Baseline+ zone*Drive_Middle+
+                zone*Drives_Left+zone*Drives_Right + zone*Drives_Straight, data= made_basket_reg7, family = binomial(link = "logit"))
+summary(model7)
+
+ll.null <- model7$null.deviance/-2
+ll.proposed <- model7$deviance/-2
+(ll.null - ll.proposed)/ll.null
+
+```
+
+
+
+```{r}
+made_basket_data %>% select(zone,Cut,Flare,Flash,High_PnR,Left_PnR,Right_PnR,Off_Screen,ISO,No_Play_Type,
+                            Post_Up,Spot_Up,made_basket) -> made_basket_reg9                   
+
+model9 <- glm(made_basket ~ zone:Cut+zone:Flare+zone:Flash+zone:High_PnR+zone:Left_PnR+
+                zone:Right_PnR+zone:Off_Screen+zone:ISO+zone:No_Play_Type+zone:Post_Up+
+                zone:Spot_Up, data= made_basket_reg8, family = binomial(link = "logit"))
+summary(model9)
+
+ll.null <- model9$null.deviance/-2
+ll.proposed <- model9$deviance/-2
+(ll.null - ll.proposed)/ll.null
+```
+
+
+```{r}
+#unique(made_basket_data$play_result)
+
+made_basket_data %>% mutate(basket_type = (ifelse(grepl("Make 2 Pts|Make 2 Pts Foul", made_basket_data$play_result), "Make 2 Pts",
+                                         ifelse(grepl("Make 3 Pts|Make 3 Pts Foul",made_basket_data$play_result),"Make 3 Pts",
+                                         ifelse(grepl("Miss 2 Pts",made_basket_data$play_result),"Miss 2 Pts",
+                                         ifelse(grepl("Miss 3 Pts",made_basket_data$play_result),"Miss 3 Pts",        
+                                                "None")))))) -> made_basket_data
+
+
+made_basket_data$basket_type=factor(made_basket_data$basket_type, levels = c("Miss 2 Pts","Miss 3 Pts","Make 2 Pts","Make 3 Pts"))
+```
+
+```{r}
+made_basket_data %>% dplyr::select(zone,Cut,Flare,Flash,High_PnR,Left_PnR,Right_PnR,Off_Screen,ISO,No_Play_Type,
+                            Post_Up,Spot_Up,From_Dribble,Drive_Baseline,Drive_Middle,Drives_Left,Drives_Right,
+                            Drives_Straight,basket_type) -> made_basket_ordered                  
+
+model_ordered <- polr(basket_type ~ zone*Cut+zone*Flare+zone*Flash+zone*High_PnR+zone*Left_PnR+
+                zone*Right_PnR+zone*Off_Screen+zone*ISO+zone*No_Play_Type+zone*Post_Up+
+                zone*Spot_Up+zone*Spot_Up+zone*From_Dribble+ zone*Drive_Baseline+ zone*Drive_Middle+
+                zone*Drives_Left+zone*Drives_Right + zone*Drives_Straight, data= made_basket_ordered, Hess = TRUE, method = "logistic")
+
+summary(model_ordered)
+#polr(medalModel, data = mydata, Hess = TRUE, method = "probit")
+
+```
+
+```{r}
+made_basket_data %>% dplyr::select(zone,Cut,Flare,Flash,High_PnR,Left_PnR,Right_PnR,Off_Screen,ISO,No_Play_Type,
+                            Post_Up,Spot_Up,From_Dribble,basket_type) -> made_basket_ordered2                  
+
+model_ordered2 <- polr(basket_type ~ Cut+Flare+Flash+High_PnR+Left_PnR+
+                Right_PnR+Off_Screen+ISO+No_Play_Type+Post_Up+
+                Spot_Up+Spot_Up+From_Dribble, data= made_basket_ordered2, Hess = TRUE, method = "logistic")
+summary(model_ordered2)
+
+```
+
+```{r}
+made_basket_data %>% dplyr::select(hardDouble,sob:press,At_Basket:Cut,Dribble_Jumper:Guarded,High_PnR:No_Play_Type,
+                            Off_Screen:Offensive_Rebound,PnR_Ball_Handler:Right,Right_Shoulder:Right_Wing,Short_to_lessthan_17ft,
+                            Split:Spot_Up,To_Basket:To_Shooters_Left,To_Up_and_Under,Trailer,
+                            made_basket,basket_type) -> made_basket_ordered3
+
+model_ordered3 <- polr(basket_type ~ ., data= made_basket_ordered3, Hess = TRUE, method = "logistic")
+summary(model_ordered3)
+```
+
+#####################################################################################################
+
+
+
+```{r}
+made_basket_data %>% dplyr::select(hardDouble,sob:press,At_Basket:No_Play_Type,
+                                   Off_Screen:Transition,basket_type) -> made_basket_reg_forest
+
+```
+
+```{r}
+made_basket_data %>% filter(basket_type == "Make 2 Pts"| basket_type=="Miss 2 Pts") %>%
+                    dplyr::select(hardDouble,sob:press,At_Basket:No_Play_Type,
+                                   Off_Screen:Transition,basket_type)  -> reg_forest_2pts
+
+reg_forest_2pts$basket_type=factor(reg_forest_2pts$basket_type, levels = c("Miss 2 Pts","Make 2 Pts"))
+
+made_basket_data %>% filter(basket_type == "Make 3 Pts" | basket_type=="Miss 3 Pts") %>%
+                    dplyr::select(hardDouble,sob:press,At_Basket:No_Play_Type,
+                                   Off_Screen:Transition,basket_type)  -> reg_forest_3pts
+
+reg_forest_3pts$basket_type=factor(reg_forest_3pts$basket_type, levels = c("Miss 3 Pts","Make 3 Pts"))
+
+```
+
+
+
+# Trying Machine Learning 
+
+Ramdon Forest 2pts
+```{r}
+set.seed(123)
+sample_set2 <- createDataPartition(y=reg_forest_2pts$basket_type, p=.75, list=FALSE)
+basket_2pt_train <- reg_forest_2pts[sample_set2,]
+basket_2pt_test <- reg_forest_2pts[-sample_set2,]
+```
+
+```{r}
+round(prop.table(table(dplyr::select(reg_forest_2pts, basket_type))),2)
+round(prop.table(table(dplyr::select(basket_2pt_train, basket_type))),2)
+round(prop.table(table(dplyr::select(basket_2pt_test, basket_type))),2)
+```
+
+```{r}
+randomforest_model2pts <- randomForest(basket_type~.,data=basket_2pt_train,proximity=TRUE)
+randomforest_model2pts
+```
+
+```{r}
+rf_pred2 <- predict(randomforest_model2pts, basket_2pt_test)
+basket_2pt_test$rf_pred2 = rf_pred2
+#confusionMatrix(rf_pred, made_basket_reg$made_basket, positive = "C")
+cfm2 <- table(basket_2pt_test$rf_pred2,basket_2pt_test$basket_type)
+cfm2
+
+classification_accuracy2 <- sum(diag(cfm2)/sum(cfm2))
+classification_accuracy2
+```
+
+
+Random Forest 3pts
+```{r}
+set.seed(1234)
+sample_set3 <- createDataPartition(y=reg_forest_3pts$basket_type, p=.75, list=FALSE)
+basket_3pt_train <- reg_forest_3pts[sample_set3,]
+basket_3pt_test <- reg_forest_3pts[-sample_set3,]
+```
+
+```{r}
+round(prop.table(table(dplyr::select(reg_forest_3pts, basket_type))),2)
+round(prop.table(table(dplyr::select(basket_3pt_train, basket_type))),2)
+round(prop.table(table(dplyr::select(basket_3pt_test, basket_type))),2)
+```
+
+```{r}
+randomforest_model3pts <- randomForest(basket_type~.,data=basket_3pt_train,proximity=TRUE)
+randomforest_model3pts
+```
+
+```{r}
+rf_pred3 <- predict(randomforest_model3pts, basket_3pt_test)
+basket_3pt_test$rf_pred3 = rf_pred3
+#confusionMatrix(rf_pred, made_basket_reg$made_basket, positive = "C")
+cfm3 <- table(basket_3pt_test$rf_pred3,basket_3pt_test$basket_type)
+cfm3
+
+classification_accuracy3 <- sum(diag(cfm3)/sum(cfm3))
+classification_accuracy3
+```
+
+
+
+Random Forest All Shot
+```{r}
+set.seed(12)
+sample_set <- createDataPartition(y=made_basket_reg_forest$basket_type, p=.75, list=FALSE)
+basket_type_train <- made_basket_reg_forest[sample_set,]
+basket_type_test <- made_basket_reg_forest[-sample_set,]
+```
+
+```{r}
+round(prop.table(table(dplyr::select(made_basket_reg_forest, basket_type))),2)
+round(prop.table(table(dplyr::select(basket_type_train, basket_type))),2)
+round(prop.table(table(dplyr::select(basket_type_test, basket_type))),2)
+```
+
+
+62.02% of samples were correctly classified by random forest
+
+
+```{r}
+randomforest_model2 <- randomForest(basket_type~.,data=basket_type_train,proximity=TRUE,importance=TRUE)
+randomforest_model2
+```
+
+```{r}
+rf_pred <- predict(randomforest_model2, basket_type_test)
+basket_type_test$rf_pred = rf_pred
+#confusionMatrix(rf_pred, made_basket_reg$made_basket, positive = "C")
+cfm <- table(basket_type_test$rf_pred,basket_type_test$basket_type)
+cfm
+
+classification_accuracy <- sum(diag(cfm)/sum(cfm))
+classification_accuracy
+```
+
+```{r}
+confusionMatrix(predict(randomforest_model2, basket_type_test),basket_type_test$basket_type)
+```
+```{r}
+plot(randomforest_model2)
+```
+
+
+
+```{r}
+
+made_basket_data %>% dplyr::select(hardDouble,sob:press,At_Basket:No_Play_Type,
+                                   Off_Screen:Transition,made_basket) -> made_miss_reg_forest
+
+```
+
+
+
+RF on make/miss
+```{r}
+
+set.seed(1234)
+sample_set4 <- createDataPartition(y=made_miss_reg_forest$made_basket, p=.75, list=FALSE)
+made_miss_train <- made_miss_reg_forest[sample_set4,]
+made_miss_test <- made_miss_reg_forest[-sample_set4,]
+
+```
+
+
+```{r}
+round(prop.table(table(dplyr::select(made_miss_reg_forest, made_basket))),2)
+round(prop.table(table(dplyr::select(made_miss_train, made_basket))),2)
+round(prop.table(table(dplyr::select(made_miss_test, made_basket))),2)
+```
+
+```{r}
+randomforest_model_mademiss <- randomForest(made_basket~.,data=made_miss_train,proximity=TRUE,importance=TRUE)
+randomforest_model_mademiss
+```
+
+```{r}
+rf_pred_mademiss <- predict(randomforest_model2, basket_type_test)
+made_miss_test$rf_pred = rf_pred_mademiss
+
+confusionMatrix(predict(randomforest_model_mademiss, made_miss_test),made_miss_test$made_basket)
+```
+
+Last Try
+Removing Variables that give hints about shot type/location
+```{r}
+made_basket_data %>% dplyr::select(hardDouble,sob:press,Ball_Delivered,Ballhandler,Baseline,Curl,Cut,
+                                   Defense_Commits,Dribble_Move,
+                            Dribble_Off_Pick,Drive_Baseline:Drives_Straight,Face_up,First_Middle,Flare,
+                            Flash_Middle,From_Dribble:Hand_Off,High_PnR,ISO,Leak_Outs,Left:Long,No_Dribble_Move:No_Play_Type,
+                            Off_Screen:Right_Wing,Screen,Side:Straight, To_Shooters_Left:To_Shooters_Right,
+                            Top,basket_type) -> last_rf
+
+
+```
+
+```{r}
+
+set.seed(66)
+sample_set5 <- createDataPartition(y=last_rf$basket_type, p=.75, list=FALSE)
+last_rf_train <- last_rf[sample_set4,]
+last_rf_test <- last_rf[-sample_set4,]
+
+```
+
+
+```{r}
+round(prop.table(table(dplyr::select(last_rf, basket_type))),2)
+round(prop.table(table(dplyr::select(last_rf_train, basket_type))),2)
+round(prop.table(table(dplyr::select(last_rf_test,basket_type))),2)
+```
+
+```{r}
+last_rf_model <- randomForest(basket_type~.,data=last_rf_train,proximity=TRUE,importance=TRUE)
+last_rf_model
+```
+
+```{r}
+#last_rf_pred <- predict(last_rf_model, basket_type_test)
+#last_rf_test$rf_pred = last_rf_pred
+
+confusionMatrix(predict(last_rf_model, last_rf_test),last_rf_test$basket_type)
+
+```
+
+
+```{r}
+auc <- multiclass.roc(last_rf_test$basket_type, predict(last_rf_model, last_rf_test, type = 'prob'))
+
+plot(auc, ylim=c(0,1), print.thres=TRUE, main=paste('AUC:',round(auc$auc[[1]],2)))
+```
+
+```{r}
+predictions1 <- as.numeric(predict(last_rf_model, last_rf_test, type = 'response'))
+roc.multi <- multiclass.roc(last_rf_test$basket_type, predictions1, 
+                            percent=TRUE)
+rs <- roc.multi[['rocs']]
+plot.roc(rs[[2]])
+sapply(2:length(rs),function(i) lines.roc(rs[[i]],col=i))
+```
+
+```{r}
+predictions <- as.data.frame(predict(last_rf_model, last_rf_test, type = "prob"))
+predictions$predict <- names(predictions)[1:4][apply(predictions[,1:4], 1, which.max)]
+predictions$observed <- last_rf_test$basket_type
+head(predictions)
+```
+```{r}
+roc.miss2 <- roc(ifelse(predictions$observed=="Miss 2 Pts", "Miss 2 Pts", "non-miss2"), as.numeric(predictions$`Miss 2 Pts`))
+plot(roc.miss2, col = "#1F78B4",main="ROC Curves for Random Forest Model",)
+
+# others
+roc.miss3 <- roc(ifelse(predictions$observed=="Miss 3 Pts", "Miss 3 Pts", "non-miss3"), as.numeric(predictions$`Miss 2 Pts`))
+roc.make2 <- roc(ifelse(predictions$observed=="Make 2 Pts", "Make 2 Pts", "non-make2"), as.numeric(predictions$`Miss 2 Pts`))
+roc.make3 <- roc(ifelse(predictions$observed=="Make 3 Pts", "Make 3 Pts", "non-make3"), as.numeric(predictions$`Miss 2 Pts`))
+
+lines(roc.miss3, col = "#33A02C")
+lines(roc.make2, col = "#E31A1C")
+lines(roc.make3, col = "#FF7F00")
+
+legend(0.1, 0.4, legend=c("Miss 2 Pts", "Miss 3 Pts", "Make 2 Pts","Make 3 Pts"), fill = c("#1F78B4","#33A02C","#E31A1C","#FF7F00"))
+
+```
+
+
+
+```{r}
+lastrf_varImpPlot = varImpPlot(last_rf_model,
+           sort = T,
+           n.var = 10,
+           main ="Top 10 - Variable Importance" )
+```
+
+```{r}
+varUsed(last_rf_model)
+```
+
+
+
+
+
+graphing (done in tableau)
+
+```{r}
+last_rf %>% dplyr::select(hardDouble:Top) -> graphing_df
+
+graphing_df$hardDouble <- as.integer(graphing_df$hardDouble)
+graphing_df$hardDouble <- as.factor(graphing_df$hardDouble)
+
+graphing_df$sob <- as.integer(graphing_df$sob)
+graphing_df$sob <- as.factor(graphing_df$sob)
+
+graphing_df$eob <- as.integer(graphing_df$eob)
+graphing_df$eob <- as.factor(graphing_df$eob)
+
+graphing_df$ato <- as.integer(graphing_df$ato)
+graphing_df$ato <- as.factor(graphing_df$ato)
+
+graphing_df$zone <- as.integer(graphing_df$zone)
+graphing_df$zone <- as.factor(graphing_df$zone)
+
+
+graphing_df$shortClock <- as.integer(graphing_df$shortClock)
+graphing_df$shortClock <- as.factor(graphing_df$shortClock)
+
+
+graphing_df$press <- as.integer(graphing_df$press)
+graphing_df$press <- as.factor(graphing_df$press)
+
+
+
+graphing_df<- data.frame(lapply(graphing_df,function(x) as.numeric(x)))
+
+
+```
+
+
+```{r}
+graphing_df$hardDouble <- ifelse(graphing_df$hardDouble==2,1,0)
+graphing_df$sob <- ifelse(graphing_df$sob==2,1,0)
+graphing_df$eob <- ifelse(graphing_df$eob==2,1,0)
+graphing_df$ato <- ifelse(graphing_df$ato==2,1,0)
+graphing_df$zone <- ifelse(graphing_df$zone==2,1,0)
+graphing_df$shortClock <- ifelse(graphing_df$shortClock==2,1,0)
+graphing_df$press <- ifelse(graphing_df$press==2,1,0)
+graphing_df$Ball_Delivered <- ifelse(graphing_df$Ball_Delivered==2,1,0)
+graphing_df$Ballhandler <- ifelse(graphing_df$Ballhandler==2,1,0)
+graphing_df$Baseline <- ifelse(graphing_df$Baseline==2,1,0)
+graphing_df$Curl <- ifelse(graphing_df$Curl==2,1,0)
+graphing_df$Cut <- ifelse(graphing_df$Cut==2,1,0)
+graphing_df$Defense_Commits <- ifelse(graphing_df$Defense_Commits==2,1,0)
+graphing_df$Dribble_Move <- ifelse(graphing_df$Dribble_Move==2,1,0)
+graphing_df$Dribble_Off_Pick <- ifelse(graphing_df$Dribble_Off_Pick==2,1,0)
+graphing_df$Drive_Baseline <- ifelse(graphing_df$Drive_Baseline==2,1,0)
+graphing_df$Drive_Middle <- ifelse(graphing_df$Drive_Middle==2,1,0)
+graphing_df$Drives_Left <- ifelse(graphing_df$Drives_Left==2,1,0)
+graphing_df$Drives_Right <- ifelse(graphing_df$Drives_Right==2,1,0)
+graphing_df$Drives_Straight <- ifelse(graphing_df$Drives_Straight==2,1,0)
+graphing_df$Face_up <- ifelse(graphing_df$Face_up==2,1,0)
+graphing_df$First_Middle <- ifelse(graphing_df$First_Middle==2,1,0)
+graphing_df$Flare <- ifelse(graphing_df$Flare==2,1,0)
+graphing_df$Flash_Middle <- ifelse(graphing_df$Flash_Middle==2,1,0)
+graphing_df$From_Dribble <- ifelse(graphing_df$From_Dribble==2,1,0)
+graphing_df$From_Stationary <- ifelse(graphing_df$From_Stationary==2,1,0)
+graphing_df$Go_Away_From_Pick <- ifelse(graphing_df$Go_Away_From_Pick==2,1,0)
+graphing_df$Guarded <- ifelse(graphing_df$Guarded==2,1,0)
+graphing_df$Hand_Off <- ifelse(graphing_df$Hand_Off==2,1,0)
+graphing_df$High_PnR <- ifelse(graphing_df$High_PnR==2,1,0)
+graphing_df$ISO <- ifelse(graphing_df$ISO==2,1,0)
+graphing_df$Leak_Outs <- ifelse(graphing_df$Leak_Outs==2,1,0)
+graphing_df$Left <- ifelse(graphing_df$Left==2,1,0)
+graphing_df$Left_Block <- ifelse(graphing_df$Left_Block==2,1,0)
+graphing_df$Left_PnR <- ifelse(graphing_df$Left_PnR==2,1,0)
+graphing_df$Left_Shoulder <- ifelse(graphing_df$Left_Shoulder==2,1,0)
+graphing_df$Left_Wing <- ifelse(graphing_df$Left_Wing==2,1,0)
+graphing_df$Long <- ifelse(graphing_df$Long==2,1,0)
+graphing_df$No_Dribble_Move <- ifelse(graphing_df$No_Dribble_Move==2,1,0)
+graphing_df$No_Play_Type <- ifelse(graphing_df$No_Play_Type==2,1,0)
+graphing_df$Off_Screen <- ifelse(graphing_df$Off_Screen==2,1,0)
+graphing_df$Offensive_Rebound <- ifelse(graphing_df$Offensive_Rebound==2,1,0)
+graphing_df$Open <- ifelse(graphing_df$Open==2,1,0)
+graphing_df$PnR_Ball_Handler <- ifelse(graphing_df$PnR_Ball_Handler==2,1,0)
+graphing_df$Post_Up <- ifelse(graphing_df$Post_Up==2,1,0)
+graphing_df$Post_Pin <- ifelse(graphing_df$Post_Pin==2,1,0)
+graphing_df$Right <- ifelse(graphing_df$Right==2,1,0)
+graphing_df$Right_Block <- ifelse(graphing_df$Right_Block==2,1,0)
+graphing_df$Right_PnR <- ifelse(graphing_df$Right_PnR==2,1,0)
+graphing_df$Right_Shoulder <- ifelse(graphing_df$Right_Shoulder==2,1,0)
+graphing_df$Right_Wing <- ifelse(graphing_df$Right_Wing==2,1,0)
+graphing_df$Screen <- ifelse(graphing_df$Screen==2,1,0)
+graphing_df$Side <- ifelse(graphing_df$Side==2,1,0)
+graphing_df$Split <- ifelse(graphing_df$Split==2,1,0)
+graphing_df$Spot_Up <- ifelse(graphing_df$Spot_Up==2,1,0)
+graphing_df$Straight <- ifelse(graphing_df$Straight==2,1,0)
+graphing_df$To_Shooters_Left <- ifelse(graphing_df$To_Shooters_Left==2,1,0)
+graphing_df$To_Shooters_Right <- ifelse(graphing_df$To_Shooters_Right==2,1,0)
+graphing_df$Top <- ifelse(graphing_df$press==2,1,0)
+
+
+
+```
+
+
+```{r}
+made_basket_data %>% dplyr::select(offense.teamId,offense.name,gameResult.gameId,possessionId,basket_type) -> other_variables
+
+graphing_df <- bind_cols(graphing_df,other_variables)
+```
+
+
+```{r}
+#write_csv("graphingdf.csv",x=graphing_df)
+```
+
+
+```{r}
+plotsdf <- read_csv("plots.csv")
+```
+
+
+
